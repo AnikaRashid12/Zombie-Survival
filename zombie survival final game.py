@@ -35,7 +35,7 @@ bull_cooldown_frames = 8
 enemies = []
 enemy_num = 5
 enemy_base_r = 30
-enemy_speed = 0.1   # slow speed for easier gameplay
+enemy_speed = 0.25   # slow speed for easier gameplay
 
 # ---------------- Trees / Obstacles ----------------
 trees = [{"x": -200, "y": -100, "size": 60}, {"x": 150, "y": 100, "size": 80}]
@@ -68,11 +68,28 @@ def deg2rad(a):
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
-def rand_spawn_pos():
-    x = random.choice([-1,1]) * random.randint(200, 400)
-    y = random.randint(-400, 400)
-    if random.random() < 0.5:
-        x, y = y, x
+def rand_spawn_pos(): 
+    tile = 60
+    grid_length = 1000
+    grid_half = grid_length // tile
+    half_ground = grid_half * tile
+    margin = 250  # distance away from the walls
+
+    side = random.choice(['top', 'bottom', 'left', 'right'])
+
+    if side == 'top':
+        x = random.uniform(-half_ground + margin, half_ground - margin)
+        y = half_ground - margin
+    elif side == 'bottom':
+        x = random.uniform(-half_ground + margin, half_ground - margin)
+        y = -half_ground + margin
+    elif side == 'left':
+        x = -half_ground + margin
+        y = random.uniform(-half_ground + margin, half_ground - margin)
+    else:  # right
+        x = half_ground - margin
+        y = random.uniform(-half_ground + margin, half_ground - margin)
+
     return float(x), float(y)
 
 def init_enemy():
@@ -84,9 +101,10 @@ def init_enemy():
             "base_r": enemy_base_r,
             "phase": random.uniform(0, math.pi*2),
             "pulse": 0.0,
-            "speed": enemy_speed
+            "speed": enemy_speed,
+            "strength": random.randint(1,3),
+            "hit_cooldown": 0
         })
-
 def reset_games():
     global score, lives, bullets, game_over, person1
     player.update({"x":0, "y":0, "angle":0, "alive":True, "lie_down":False})
@@ -134,6 +152,44 @@ def draw_ground():
             glVertex3f(x0, y1, 0)
     glEnd()
 
+def draw_walls(): 
+    wall_height = 100
+    wall_thickness = 10
+    tile = 60
+    grid_length = 1000
+    grid_half = grid_length // tile
+    half_ground = grid_half * tile  # exact ground border
+
+    glColor3f(0.5, 0.5, 0.5)  # gray walls
+
+    # Top wall
+    glPushMatrix()
+    glTranslatef(0, half_ground - wall_thickness/2, wall_height/2)
+    glScalef(2*half_ground + wall_thickness, wall_thickness, wall_height)
+    glutSolidCube(1)
+    glPopMatrix()
+
+    # Bottom wall
+    glPushMatrix()
+    glTranslatef(0, -half_ground + wall_thickness/2, wall_height/2)
+    glScalef(2*half_ground + wall_thickness, wall_thickness, wall_height)
+    glutSolidCube(1)
+    glPopMatrix()
+
+    # Right wall
+    glPushMatrix()
+    glTranslatef(half_ground - wall_thickness/2, 0, wall_height/2)
+    glScalef(wall_thickness, 2*half_ground + wall_thickness, wall_height)
+    glutSolidCube(1)
+    glPopMatrix()
+
+    # Left wall
+    glPushMatrix()
+    glTranslatef(-half_ground + wall_thickness/2, 0, wall_height/2)
+    glScalef(wall_thickness, 2*half_ground + wall_thickness, wall_height)
+    glutSolidCube(1)
+    glPopMatrix()
+
 def draw_tree(t):
     # Trunk
     glColor3f(0.55,0.27,0.07)
@@ -158,19 +214,54 @@ def draw_bullet(b):
     glutSolidCube(10)
     glPopMatrix()
 
-def draw_enemy(e):
+def draw_enemy(e): 
     global _quadric
     if not _quadric:
         _quadric = gluNewQuadric()
     glPushMatrix()
     glTranslatef(e["x"], e["y"], 0)
-    # Body green
-    glColor3f(0,1,0)
+
+    # Determine color and scale by strength
+    if e.get("strength", 1) == 1:      # light green
+        glColor3f(0.5, 1.0, 0.5)
+        scale = 1.0
+    elif e["strength"] == 2:            # orange
+        glColor3f(1.0, 0.65, 0.0)
+        scale = 1.3
+    else:                               # red
+        glColor3f(1.0, 0.0, 0.0)
+        scale = 1.6
+
+    # Torso
+    glPushMatrix()
+    glScalef(1.0*scale, 0.6*scale, 1.5*scale)
     glutSolidCube(enemy_base_r)
-    # Head black
+    glPopMatrix()
+
+    # Head
+    glPushMatrix()
     glColor3f(0,0,0)
-    glTranslatef(0,0,enemy_base_r/1.5)
-    gluSphere(_quadric, enemy_base_r/2, 20, 20)
+    glTranslatef(0, 0, 1.5*enemy_base_r*scale/2 + 10*scale)
+    glutSolidSphere(10*scale, 16, 16)
+    glPopMatrix()
+
+    # Arms
+    glColor3f(0.0,0.0,1.0)
+    for dx in (-0.8*enemy_base_r*scale, 0.8*enemy_base_r*scale):
+        glPushMatrix()
+        glTranslatef(dx, 0, 0.5*enemy_base_r*scale)
+        glScalef(0.3*scale,0.3*scale,1.0*scale)
+        glutSolidCube(enemy_base_r)
+        glPopMatrix()
+
+    # Legs
+    for dx in (-0.3*enemy_base_r*scale, 0.3*enemy_base_r*scale):
+        glPushMatrix()
+        glTranslatef(dx, 0, -0.75*enemy_base_r*scale)
+        glScalef(0.4*scale,0.4*scale,1.0*scale)
+        glutSolidCube(enemy_base_r)
+        glPopMatrix()
+
     glPopMatrix()
 
 def draw_player():
@@ -294,39 +385,90 @@ def fire_bullet():
     bull_cooldown=bull_cooldown_frames
 
 # ---------------- Game Logic ----------------
-def update_bullets():
-    global bullets
+
+def update_bullets(): 
+    global bullets, score, enemies
     for b in bullets[:]:
-        rad=deg2rad(b["angle"])
-        b["x"] += bull_speed*math.cos(rad)
-        b["y"] += bull_speed*math.sin(rad)
-        # Collision
-        for e in enemies:
+        rad = deg2rad(b["angle"])
+        b["x"] += bull_speed * math.cos(rad)
+        b["y"] += bull_speed * math.sin(rad)
+        
+        for i, e in enumerate(enemies):
             if abs(e["x"]-b["x"])<enemy_base_r and abs(e["y"]-b["y"])<enemy_base_r:
-                enemies.remove(e)
-                if b in bullets: bullets.remove(b)
+                
+                # Initialize health if not present
+                if "health" not in e:
+                    if e.get("strength",1) == 1:
+                        e["health"] = 1
+                    elif e["strength"] == 2:
+                        e["health"] = 2
+                    else:
+                        e["health"] = 3
+                
+                # Reduce health by 1
+                e["health"] -= 1
+                
+                # Only respawn and score if health is 0
+                if e["health"] <= 0:
+                    strength = e.get("strength", 1)
+                    if strength == 1:
+                        score += 1
+                    elif strength == 2:
+                        score += 2
+                    else:
+                        score += 3
+
+                    # Respawn zombie
+                    ex, ey = rand_spawn_pos()
+                    enemies[i] = {
+                        "x": ex,
+                        "y": ey,
+                        "base_r": enemy_base_r,
+                        "phase": random.uniform(0, math.pi*2),
+                        "pulse": 0.0,
+                        "speed": enemy_speed,
+                        "strength": random.randint(1,3),
+                        "hit_cooldown": 0
+                    }
+                
+                if b in bullets:
+                    bullets.remove(b)
                 break
-        if b in bullets and abs(b["x"])>500 or abs(b["y"])>500:
+        
+        if b in bullets and (abs(b["x"])>500 or abs(b["y"])>500):
             bullets.remove(b)
 
-def update_enemies():
-    global lives,game_over
+def update_enemies():  
+    global lives, game_over
     for e in enemies:
-        blocked=False
-        for t in trees:
-            if abs(e['x']-t['x'])<t['size'] and abs(e['y']-t['y'])<t['size']:
-                blocked=True
-        if not blocked:
-            dx, dy = player["x"]-e["x"], player["y"]-e["y"]
-            dist = math.hypot(dx, dy)+1e-6
-            e["x"] += enemy_speed*(dx/dist)
-            e["y"] += enemy_speed*(dy/dist)
-        if math.hypot(player["x"]-e["x"], player["y"]-e["y"])<enemy_base_r+20:
-            lives-=1
+        # decrease cooldown
+        if e.get("hit_cooldown",0) > 0:
+            e["hit_cooldown"] -= 1
+
+        # Check tree blocking
+        is_blocked = any(abs(e['x']-t['x']) < t['size'] and abs(e['y']-t['y']) < t['size'] for t in trees)
+        if not is_blocked:
+            dx = player["x"] - e["x"]
+            dy = player["y"] - e["y"]
+            distance = math.hypot(dx, dy) + 1e-6
+            e["x"] += enemy_speed * (dx / distance)
+            e["y"] += enemy_speed * (dy / distance)
+
+        # Player collision
+        distance_to_player = math.hypot(player["x"] - e["x"], player["y"] - e["y"])
+        if distance_to_player < enemy_base_r + 20 and e.get("hit_cooldown",0) == 0:
+            lives -= 1
+            e["hit_cooldown"] = 50
             ex, ey = rand_spawn_pos()
-            e["x"]=ex
-            e["y"]=ey
-        if lives<=0:
+            e.update({
+                "x": ex, "y": ey,
+                "phase": random.uniform(0, math.pi*2),
+                "pulse": 0.0,
+                "speed": enemy_speed,
+                "strength": random.randint(1,3)
+            })
+
+        if lives <= 0:
             trigger_game_over()
 
 
@@ -376,6 +518,7 @@ def showScreen():
     setupCamera()
     draw_danger_zone()
     draw_ground()
+    draw_walls()
     for t in trees:
         draw_tree(t)
     for e in enemies:
