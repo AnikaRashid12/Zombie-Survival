@@ -114,6 +114,7 @@ def init_enemy():
             "strength": strength,
             "hit_cooldown": 0,
             "health": strength   })
+        
 def reset_games():
     global score, health_pack, bullets, game_over, person1
     player.update({"x":0, "y":0, "angle":0, "alive":True, "lie_down":False})
@@ -332,8 +333,6 @@ def create_blood_trail(px, py):
             "ttl": BLOOD_TTL_FRAMES
         })
 
-
-
 def update_blood_trails():
     for bt in blood_trails:
         bt["ttl"] -= 1
@@ -498,39 +497,40 @@ def trigger_game_over():
 # ---------------- Game Logic ----------------
 
 def update_bullets(): 
-    global bullets, score, enemies
+    global bullets, score, enemies, health_pack
+    # arena bounds matched to ground
+    tile = 60
+    grid_length = 1000
+    half_ground = (grid_length // tile) * tile  # 960
+
     for b in bullets[:]:
         rad = deg2rad(b["angle"])
         b["x"] += bull_speed * math.cos(rad)
         b["y"] += bull_speed * math.sin(rad)
-        
+
+        hit = False
         for i, e in enumerate(enemies):
-            if abs(e["x"]-b["x"])<enemy_base_r and abs(e["y"]-b["y"])<enemy_base_r:
-                
-                # Initialize health if not present
-                if "health" not in e:
-                    if e.get("strength",1) == 1:
-                        e["health"] = 1
-                    elif e["strength"] == 2:
-                        e["health"] = 2
-                    else:
-                        e["health"] = 3
-                
-                # Reduce health by 1
+            if e["health"] <= 0:
+                continue
+
+            # === AABB collision like your second code ===
+            if abs(e["x"] - b["x"]) < enemy_base_r and abs(e["y"] - b["y"]) < enemy_base_r:
                 e["health"] -= 1
-                
-                # Only respawn and score if health is 0
+                create_blood_trail(e["x"], e["y"])
+                hit = True
+
+                # killed?
                 if e["health"] <= 0:
                     strength = e.get("strength", 1)
-                    if strength == 1:
-                        score += 1
-                    elif strength == 2:
-                        score += 2
-                    else:
-                        score += 3
+                    score += {1: 1, 2: 2, 3: 3}.get(strength, 1)
 
-                    # Respawn zombie
+                    # Heal on kill: +20, cap 100
+                    if health_pack < 100:
+                        health_pack = min(100, health_pack + 20)
+
+                    # Respawn enemy fresh (cooldown reset!)
                     ex, ey = rand_spawn_pos()
+                    new_strength = random.randint(1, 3)
                     enemies[i] = {
                         "x": ex,
                         "y": ey,
@@ -538,48 +538,88 @@ def update_bullets():
                         "phase": random.uniform(0, math.pi*2),
                         "pulse": 0.0,
                         "speed": enemy_speed,
-                        "strength": random.randint(1,3),
-                        "hit_cooldown": 0
+                        "strength": new_strength,
+                        "hit_cooldown": 0,     # <- important
+                        "health": new_strength
                     }
-                
-                if b in bullets:
-                    bullets.remove(b)
                 break
-        
-        if b in bullets and (abs(b["x"])>500 or abs(b["y"])>500):
+
+        if hit:
+            bullets.remove(b)
+            continue
+
+        # Despawn outside arena with margin
+        if abs(b["x"]) > (half_ground + 40) or abs(b["y"]) > (half_ground + 40):
             bullets.remove(b)
 
 def update_enemies():  
-    global lives, game_over
+    global health_pack
     for e in enemies:
-        # decrease cooldown
-        if e.get("hit_cooldown",0) > 0:
+        # === Decrement cooldown every frame ===
+        if e.get("hit_cooldown", 0) > 0:
             e["hit_cooldown"] -= 1
+
+        if e["health"] <= 0:
+            continue
+
+        # Blood attraction (use midpoint of freshest nearby trail)
+        target_blood = None
+        best_ttl = -1
+        ex, ey = e["x"], e["y"]
+        for bt in blood_trails:
+            mx = 0.5*(bt["x1"] + bt["x2"])
+            my = 0.5*(bt["y1"] + bt["y2"])
+            if math.hypot(mx - ex, my - ey) <= BLOOD_DETECT_RADIUS:
+                if bt["ttl"] > best_ttl:
+                    best_ttl = bt["ttl"]
+                    target_blood = (mx, my)
+
+        # Base direction: chase player
+        dx = player["x"] - e["x"]
+        dy = player["y"] - e["y"]
+        dist_p = math.hypot(dx, dy) + 1e-6
+        vx = (dx / dist_p)
+        vy = (dy / dist_p)
+
+        # If blood nearby, blend direction toward blood
+        if target_blood is not None:
+            bx = target_blood[0] - e["x"]
+            by = target_blood[1] - e["y"]
+            dist_b = math.hypot(bx, by) + 1e-6
+            bvx = bx / dist_b
+            bvy = by / dist_b
+            w = BLOOD_ATTRACT_WEIGHT
+            vx = (1 - w) * vx + w * bvx
+            vy = (1 - w) * vy + w * bvy
+            vlen = math.hypot(vx, vy) + 1e-6
+            vx /= vlen
+            vy /= vlen
 
         # Check tree blocking
         is_blocked = any(abs(e['x']-t['x']) < t['size'] and abs(e['y']-t['y']) < t['size'] for t in trees)
         if not is_blocked:
-            dx = player["x"] - e["x"]
-            dy = player["y"] - e["y"]
-            distance = math.hypot(dx, dy) + 1e-6
-            e["x"] += enemy_speed * (dx / distance)
-            e["y"] += enemy_speed * (dy / distance)
+            # move
+            e["x"] += enemy_speed * vx
+            e["y"] += enemy_speed * vy
 
-        # Player collision
-        distance_to_player = math.hypot(player["x"] - e["x"], player["y"] - e["y"])
-        if distance_to_player < enemy_base_r + 20 and e.get("hit_cooldown",0) == 0:
-            lives -= 1
+        # Attack if close
+        if math.hypot(player["x"] - e["x"], player["y"] - e["y"]) < (enemy_base_r + 20) and e.get("hit_cooldown",0) == 0:
+            health_pack = max(0, health_pack - 20)
+            create_blood_trail(player["x"], player["y"])
             e["hit_cooldown"] = 50
+
+            # Respawn the attacker a bit away and reset cooldown!
             ex, ey = rand_spawn_pos()
             e.update({
                 "x": ex, "y": ey,
                 "phase": random.uniform(0, math.pi*2),
                 "pulse": 0.0,
                 "speed": enemy_speed,
-                "strength": random.randint(1,3)
+                "strength": random.randint(1,3),
+                "hit_cooldown": 0      # <- important
             })
 
-        if lives <= 0:
+        if health_pack <= 0 and not game_over:
             trigger_game_over()
 
 
