@@ -51,6 +51,13 @@ _quadric = None
 
 # ---------------- Score / Game ----------------
 score = 0
+#----------------wave------------
+wave = 1                   # Current wave number
+wave_enemy_increment = 2   # How many more enemies per wave
+wave_speed_increment = 0.05  # How much faster each wave
+wave_cooldown = 0           # Frames until next wave starts
+wave_cooldown_frames = 300  # 5 seconds at ~60fps
+
 # ---------------- Health Pack & Game State ----------------
 health_pack = 100  # [0..100]
 game_over = False
@@ -114,6 +121,8 @@ def init_enemy():
             "strength": strength,
             "hit_cooldown": 0,
             "health": strength   })
+
+
         
 def reset_games():
     global score, health_pack, bullets, game_over, person1
@@ -495,6 +504,48 @@ def trigger_game_over():
     game_over = True
     player.update({"alive": False, "lie_down": True})
 # ---------------- Game Logic ----------------
+def update_bullets(): 
+    global bullets, score, enemies, health_pack
+    # arena bounds matched to ground
+    tile = 60
+    grid_length = 1000
+    half_ground = (grid_length // tile) * tile  # 960
+
+    for b in bullets[:]:
+        rad = deg2rad(b["angle"])
+        b["x"] += bull_speed * math.cos(rad)
+        b["y"] += bull_speed * math.sin(rad)
+
+        hit = False
+        for e in enemies:
+            if e["health"] <= 0:
+                continue
+
+            # === AABB collision ===
+            if abs(e["x"] - b["x"]) < enemy_base_r and abs(e["y"] - b["y"]) < enemy_base_r:
+                e["health"] -= 1
+                create_blood_trail(e["x"], e["y"])
+                hit = True
+
+                # killed?
+                if e["health"] <= 0:
+                    strength = e.get("strength", 1)
+                    score += {1: 1, 2: 2, 3: 3}.get(strength, 1)
+
+                    # Heal on kill: +20, cap 100
+                    if health_pack < 100:
+                        health_pack = min(100, health_pack + 20)
+
+                break  # stop checking other enemies for this bullet
+
+        if hit:
+            bullets.remove(b)
+            continue
+
+        # Despawn outside arena with margin
+        if abs(b["x"]) > (half_ground + 40) or abs(b["y"]) > (half_ground + 40):
+            bullets.remove(b)
+
 
 def update_bullets(): 
     global bullets, score, enemies, health_pack
@@ -622,7 +673,6 @@ def update_enemies():
         if health_pack <= 0 and not game_over:
             trigger_game_over()
 
-
 def draw_danger_zone():
     global blink_state, blink_counter
     # Check if any zombie is close
@@ -649,21 +699,30 @@ def draw_danger_zone():
 
 
 def idle():
-    global bull_cooldown, elapsed_time
+    global bull_cooldown, elapsed_time, wave_cooldown
     # set background by health each frame (day/night)
     set_background_by_health()
 
     # advance simple time ( ~60 fps )
     elapsed_time += 0.016
 
+    # decrement bullet cooldown
     if bull_cooldown > 0:
         bull_cooldown -= 1
+
+    # ---------------- Wave cooldown ----------------
+    if wave_cooldown > 0:
+        wave_cooldown -= 1
+        if wave_cooldown == 0:
+            init_enemy()  # spawn next wave
+
     if not game_over:
         update_enemies()
         update_bullets()
         update_blood_trails()
         update_treasures()
     glutPostRedisplay()
+
 
     
 def draw_health_battery():
@@ -755,6 +814,8 @@ def showScreen():
     draw_health_battery()
     if game_over:
         draw_text(window_width/2 - 120, window_height/2, "GAME OVER - Press R to Restart")
+    draw_text(10, window_height - 80, f"Wave: {wave}")
+
     glutSwapBuffers()
 # ---------------- Reshape (nice to have) ----------------
 def reshape(w, h):
