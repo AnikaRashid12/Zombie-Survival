@@ -51,8 +51,16 @@ _quadric = None
 
 # ---------------- Score / Game ----------------
 score = 0
-lives = 5
+# ---------------- Health Pack & Game State ----------------
+health_pack = 100  # [0..100]
 game_over = False
+
+# ---------------- Blood Trails ----------------
+blood_trails = []
+BLOOD_TTL_FRAMES = 240           # ~4 seconds at ~60fps
+BLOOD_DETECT_RADIUS = 220        # zombies are attracted to nearby fresh blood
+BLOOD_ATTRACT_WEIGHT = 0.45      # how strongly blood influences direction (0..1)
+elapsed_time = 0.0
 
 # ---------------- Helper Functions ----------------
 def wrap_angle_deg(a):
@@ -96,22 +104,24 @@ def init_enemy():
     enemies.clear()
     for _ in range(enemy_num):
         ex, ey = rand_spawn_pos()
-        enemies.append({
+        strength = random.randint(1,3)
+        enemies.append ({
             "x": ex, "y": ey,
             "base_r": enemy_base_r,
             "phase": random.uniform(0, math.pi*2),
             "pulse": 0.0,
             "speed": enemy_speed,
-            "strength": random.randint(1,3),
-            "hit_cooldown": 0
-        })
+            "strength": strength,
+            "hit_cooldown": 0,
+            "health": strength   })
 def reset_games():
-    global score, lives, bullets, game_over, person1
+    global score, health_pack, bullets, game_over, person1
     player.update({"x":0, "y":0, "angle":0, "alive":True, "lie_down":False})
     bullets.clear()
     score = 0
-    lives = 5
+    health_pack=100
     init_enemy()
+    init_treasures()
     game_over = False
     person1 = False
 
@@ -306,6 +316,93 @@ def draw_player():
     glPopMatrix()
     glPopMatrix()
 
+def create_blood_trail(px, py):
+    """Spawn 3–4 red line segments around (px,py) that fade over time."""
+    n = random.randint(3, 4)
+    for _ in range(n):
+        dx1 = random.uniform(-25, 25)
+        dy1 = random.uniform(-25, 25)
+        dx2 = dx1 + random.uniform(-30, 30)
+        dy2 = dy1 + random.uniform(-30, 30)
+        blood_trails.append({
+            "x1": px + dx1,
+            "y1": py + dy1,
+            "x2": px + dx2,
+            "y2": py + dy2,
+            "ttl": BLOOD_TTL_FRAMES
+        })
+
+
+
+def update_blood_trails():
+    for bt in blood_trails:
+        bt["ttl"] -= 1
+    # keep only alive trails
+    alive = [bt for bt in blood_trails if bt["ttl"] > 0]
+    blood_trails.clear()
+    blood_trails.extend(alive)
+
+def draw_blood_trails():
+    if not blood_trails:
+        return
+
+    # No depth/blend/smooth state changes per template rules (#1, #2 not allowed)
+    glLineWidth(3)  # allowed (#4)
+    glBegin(GL_LINES)
+    for bt in blood_trails:
+        t = max(0.0, min(1.0, bt["ttl"] / BLOOD_TTL_FRAMES))  # 1 fresh → 0 old
+        # fade by brightness only (no alpha)
+        r = 0.9 * t + 0.1
+        glColor3f(r, 0.0, 0.0)
+        z = 2.0  # slight lift above ground so lines don’t z-fight
+        glVertex3f(bt["x1"], bt["y1"], z)
+        glVertex3f(bt["x2"], bt["y2"], z)
+    glEnd()
+    glLineWidth(1)
+
+
+# ---------------- Treasure (as in your second code) ----------------
+treasures = []
+
+class Treasure:
+    def __init__(self, x, y, z):
+        self.pos = [x, y, z]
+        self.size = 35
+        self.rotation = 0
+        self.float_offset = 0
+
+    def update(self):
+     self.rotation = (self.rotation + 1) % 360
+     self.float_offset = 5 * math.sin(elapsed_time + self.pos[0]*0.1)
+
+        
+    def draw(self):
+        glPushMatrix()
+        glTranslatef(self.pos[0], self.pos[1], self.pos[2] + self.float_offset)
+        glRotatef(self.rotation, 0, 0, 1)
+        glColor3f(1, 1, 0)
+        glutSolidCube(self.size)
+        glPopMatrix()
+
+def init_treasures():
+    treasures.clear()
+    for _ in range(6):
+        x, y = rand_spawn_pos()
+        treasures.append(Treasure(x, y, 15))
+
+def update_treasures():
+    global score
+    for t in treasures[:]:
+        t.update()
+        # Player pickup
+        dist = math.hypot(player["x"] - t.pos[0], player["y"] - t.pos[1])
+        if dist < 50:
+            score += 10
+            treasures.remove(t)
+
+def draw_treasures():
+    for t in treasures:
+        t.draw()
 # ---------------- Camera ----------------
 def setupCamera():
     glMatrixMode(GL_PROJECTION)
@@ -384,6 +481,20 @@ def fire_bullet():
                     "angle":player["angle"],"alive":True})
     bull_cooldown=bull_cooldown_frames
 
+# ---------------- Gameplay Helpers ----------------
+def set_background_by_health():
+    """Blue (>40), Navy (<=40), Black (<=20)."""
+    if health_pack <= 20:
+        glClearColor(0.0, 0.0, 0.0, 1.0)       # black
+    elif health_pack <= 40:
+        glClearColor(0.0, 0.0, 0.5, 1.0)       # navy blue
+    else:
+        glClearColor(0.5, 0.8, 1.0, 1.0)       # blue sky
+
+def trigger_game_over():
+    global game_over
+    game_over = True
+    player.update({"alive": False, "lie_down": True})
 # ---------------- Game Logic ----------------
 
 def update_bullets(): 
@@ -498,17 +609,86 @@ def draw_danger_zone():
 
 
 def idle():
-    global bull_cooldown
-    if bull_cooldown>0: bull_cooldown-=1
+    global bull_cooldown, elapsed_time
+    # set background by health each frame (day/night)
+    set_background_by_health()
+
+    # advance simple time ( ~60 fps )
+    elapsed_time += 0.016
+
+    if bull_cooldown > 0:
+        bull_cooldown -= 1
     if not game_over:
         update_enemies()
         update_bullets()
+        update_blood_trails()
+        update_treasures()
     glutPostRedisplay()
 
-def trigger_game_over():
-    global game_over
-    game_over=True
-    player.update({"alive":False,"lie_down":True})
+    
+def draw_health_battery():
+    """Top-right 'battery' for health: green, turns red at <=20 and shows 'Low health'."""
+    # Battery geometry
+    body_w, body_h = 180, 28
+    cap_w = 8
+    pad = 3
+    x = window_width - 20 - body_w - cap_w   # right margin 20px
+    y = window_height - 35                   # top margin ~35px
+
+    # 2D overlay
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, window_width, 0, window_height)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+
+    # Outline (white)
+    glColor3f(1, 1, 1)
+    glLineWidth(2)
+    glBegin(GL_LINE_LOOP)
+    glVertex2f(x, y)
+    glVertex2f(x + body_w, y)
+    glVertex2f(x + body_w, y + body_h)
+    glVertex2f(x, y + body_h)
+    glEnd()
+
+    # Battery cap (solid white)
+    glBegin(GL_QUADS)
+    glVertex2f(x + body_w,           y + body_h * 0.25)
+    glVertex2f(x + body_w + cap_w,   y + body_h * 0.25)
+    glVertex2f(x + body_w + cap_w,   y + body_h * 0.75)
+    glVertex2f(x + body_w,           y + body_h * 0.75)
+    glEnd()
+
+    # Fill bar
+    frac = max(0.0, min(1.0, health_pack / 100.0))
+    if health_pack <= 20:
+        glColor3f(0.9, 0.1, 0.1)   # red
+    else:
+        glColor3f(0.1, 0.85, 0.2)  # green
+
+    fill_w = (body_w - 2 * pad) * frac
+    glBegin(GL_QUADS)
+    glVertex2f(x + pad,        y + pad)
+    glVertex2f(x + pad + fill_w, y + pad)
+    glVertex2f(x + pad + fill_w, y + body_h - pad)
+    glVertex2f(x + pad,        y + body_h - pad)
+    glEnd()
+
+    glLineWidth(1)
+
+    # Restore matrices
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+
+    # Low health label
+    if health_pack <= 20:
+        # place it just to the left of the battery
+        draw_text(x - 90, y + 5, "Low health")
 
 # ---------------- Display ----------------
 def showScreen():
@@ -521,17 +701,28 @@ def showScreen():
     draw_walls()
     for t in trees:
         draw_tree(t)
+    draw_blood_trails()
+    draw_treasures()
     for e in enemies:
         draw_enemy(e)
     for b in bullets:
         draw_bullet(b)
     draw_player()
-    draw_text(10,770,f"Player Life: {lives}")
-    draw_text(10,740,f"Score: {score}")
+    draw_player()
+    # HUD
+    draw_text(10, window_height - 30, f"Health Pack: {health_pack}")
+    draw_text(10, window_height - 55, f"Score: {score}")
+    draw_health_battery()
     if game_over:
-        draw_text(400,400,"GAME OVER - Press R to Restart")
+        draw_text(window_width/2 - 120, window_height/2, "GAME OVER - Press R to Restart")
     glutSwapBuffers()
-
+# ---------------- Reshape (nice to have) ----------------
+def reshape(w, h):
+    global window_width, window_height
+    window_width = max(1, w)
+    window_height = max(1, h)
+    glViewport(0, 0, window_width, window_height)
+    
 def main():
     random.seed(42)
     reset_games()
@@ -540,7 +731,13 @@ def main():
     glutInitWindowSize(window_width,window_height)
     glutCreateWindow(b"Zombie Survival 3D")
     glEnable(GL_DEPTH_TEST)
+    
+     # initial sky; will be overridden each frame by set_background_by_health()
+    glClearColor(0.5, 0.8, 1.0, 1.0)
+    
     glutDisplayFunc(showScreen)
+    glutReshapeFunc(reshape)
+   
     glutKeyboardFunc(keyboardListener)
     glutSpecialFunc(specialKeyListener)
     glutMouseFunc(mouseListener)
