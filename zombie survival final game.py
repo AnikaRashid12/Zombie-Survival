@@ -1081,7 +1081,7 @@ def showScreen():
     # HUD
     draw_text(10, window_height - 30, f"Health Pack: {health_pack}")
     draw_text(10, window_height - 55, f"Score: {score}")
-    
+    draw_health_battery()
     # Boss health battery (under player's)
     draw_boss()
     draw_boss_health_battery()
