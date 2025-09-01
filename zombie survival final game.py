@@ -38,8 +38,10 @@ enemy_base_r = 30
 enemy_speed = 0.25   # slow speed for easier gameplay
 
 # ---------------- Trees / Obstacles ----------------
-trees = [{"x": -200, "y": -100, "size": 60}, {"x": 150, "y": 100, "size": 80}]
-
+trees = [
+    {"x": 0, "y": 0, "size": 120, "type": "shield"},   
+    {"x": 200, "y": -150, "size": 100, "type": "tree"}, 
+]
 # ---------------- Camera ----------------
 person1 = False
 c_theta = 90
@@ -53,8 +55,8 @@ _quadric = None
 score = 0
 #----------------wave------------
 wave = 1                   # Current wave number
-wave_enemy_increment = 2   # How many more enemies per wave
-wave_speed_increment = 0.05  # How much faster each wave
+wave_enemy_increment = 2   # enemies per wave
+wave_speed_increment = 0.05  
 wave_cooldown = 0           # Frames until next wave starts
 wave_cooldown_frames = 300  # 5 seconds at ~60fps
 
@@ -64,9 +66,9 @@ game_over = False
 
 # ---------------- Blood Trails ----------------
 blood_trails = []
-BLOOD_TTL_FRAMES = 240           # ~4 seconds at ~60fps
-BLOOD_DETECT_RADIUS = 220        # zombies are attracted to nearby fresh blood
-BLOOD_ATTRACT_WEIGHT = 0.45      # how strongly blood influences direction (0..1)
+BLOOD_TTL_FRAMES = 240         
+BLOOD_DETECT_RADIUS = 220        
+BLOOD_ATTRACT_WEIGHT = 0.45      
 elapsed_time = 0.0
 
 # ---------------- Helper Functions ----------------
@@ -606,11 +608,24 @@ def update_enemies():
             vx /= vlen
             vy /= vlen
 
-        # Check tree blocking
-        is_blocked = any(abs(e['x']-t['x']) < t['size'] and abs(e['y']-t['y']) < t['size'] for t in trees)
-        if not is_blocked:
-            e["x"] += e["speed"] * vx
-            e["y"] += e["speed"] * vy
+        blocked = False
+        for t in trees:
+            tx, ty, ts = t["x"], t["y"], t["size"] / 2
+            if (min(ex, player["x"]) < tx + ts and max(ex, player["x"]) > tx - ts and
+                min(ey, player["y"]) < ty + ts and max(ey, player["y"]) > ty - ts):
+                blocked = True
+                break
+
+        if blocked:
+            # Assign detour direction if not yet assigned
+            if "detour" not in e:
+                e["detour"] = random.choice([-1, 1])
+            # Move sideways around tree (perpendicular vector)
+            vx, vy = -vy * e["detour"], vx * e["detour"]
+
+        # --- Apply movement ---
+        e["x"] += e["speed"] * vx
+        e["y"] += e["speed"] * vy
 
         # Attack player
         if math.hypot(player["x"] - e["x"], player["y"] - e["y"]) < (enemy_base_r + 20) and e.get("hit_cooldown",0) == 0:
