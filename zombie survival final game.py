@@ -509,11 +509,11 @@ def update_bullets():
         b["y"] += bull_speed * math.sin(rad)
 
         hit = False
-        for i, e in enumerate(enemies):
+        for e in enemies:
             if e["health"] <= 0:
                 continue
 
-            # === AABB collision like your second code ===
+            # === AABB collision ===
             if abs(e["x"] - b["x"]) < enemy_base_r and abs(e["y"] - b["y"]) < enemy_base_r:
                 e["health"] -= 1
                 create_blood_trail(e["x"], e["y"])
@@ -528,21 +528,7 @@ def update_bullets():
                     if health_pack < 100:
                         health_pack = min(100, health_pack + 20)
 
-                    # Respawn enemy fresh (cooldown reset!)
-                    ex, ey = rand_spawn_pos()
-                    new_strength = random.randint(1, 3)
-                    enemies[i] = {
-                        "x": ex,
-                        "y": ey,
-                        "base_r": enemy_base_r,
-                        "phase": random.uniform(0, math.pi*2),
-                        "pulse": 0.0,
-                        "speed": enemy_speed,
-                        "strength": new_strength,
-                        "hit_cooldown": 0,     # <- important
-                        "health": new_strength
-                    }
-                break
+                break  # stop checking other enemies for this bullet
 
         if hit:
             bullets.remove(b)
@@ -552,17 +538,19 @@ def update_bullets():
         if abs(b["x"]) > (half_ground + 40) or abs(b["y"]) > (half_ground + 40):
             bullets.remove(b)
 
-def update_enemies():  
-    global health_pack
-    for e in enemies:
-        # === Decrement cooldown every frame ===
+def update_enemies():
+    global health_pack, wave, wave_cooldown, game_over
+
+    # Keep only alive enemies
+    alive_enemies_list = [e for e in enemies if e["health"] > 0]
+    alive_enemies = len(alive_enemies_list)
+
+    for e in alive_enemies_list:
+        # Decrement hit cooldown
         if e.get("hit_cooldown", 0) > 0:
             e["hit_cooldown"] -= 1
 
-        if e["health"] <= 0:
-            continue
-
-        # Blood attraction (use midpoint of freshest nearby trail)
+        # Blood attraction
         target_blood = None
         best_ttl = -1
         ex, ey = e["x"], e["y"]
@@ -574,15 +562,14 @@ def update_enemies():
                     best_ttl = bt["ttl"]
                     target_blood = (mx, my)
 
-        # Base direction: chase player
+        # Move towards player (blend blood)
         dx = player["x"] - e["x"]
         dy = player["y"] - e["y"]
         dist_p = math.hypot(dx, dy) + 1e-6
-        vx = (dx / dist_p)
-        vy = (dy / dist_p)
+        vx = dx / dist_p
+        vy = dy / dist_p
 
-        # If blood nearby, blend direction toward blood
-        if target_blood is not None:
+        if target_blood:
             bx = target_blood[0] - e["x"]
             by = target_blood[1] - e["y"]
             dist_b = math.hypot(bx, by) + 1e-6
@@ -598,30 +585,27 @@ def update_enemies():
         # Check tree blocking
         is_blocked = any(abs(e['x']-t['x']) < t['size'] and abs(e['y']-t['y']) < t['size'] for t in trees)
         if not is_blocked:
-            # move
-            e["x"] += enemy_speed * vx
-            e["y"] += enemy_speed * vy
+            e["x"] += e["speed"] * vx
+            e["y"] += e["speed"] * vy
 
-        # Attack if close
+        # Attack player
         if math.hypot(player["x"] - e["x"], player["y"] - e["y"]) < (enemy_base_r + 20) and e.get("hit_cooldown",0) == 0:
             health_pack = max(0, health_pack - 20)
             create_blood_trail(player["x"], player["y"])
             e["hit_cooldown"] = 50
 
-            # Respawn the attacker a bit away and reset cooldown!
-            ex, ey = rand_spawn_pos()
-            e.update({
-                "x": ex, "y": ey,
-                "phase": random.uniform(0, math.pi*2),
-                "pulse": 0.0,
-                "speed": enemy_speed,
-                "strength": random.randint(1,3),
-                "hit_cooldown": 0      # <- important
-            })
+    # Update global enemies list to only alive ones
+    enemies[:] = alive_enemies_list
 
-        if health_pack <= 0 and not game_over:
-            trigger_game_over()
-
+    # --- Wave management ---
+    if alive_enemies == 0 and not game_over:
+        if wave_cooldown == 0:
+            wave += 1
+            wave_cooldown = wave_cooldown_frames  # 5 sec
+        else:
+            wave_cooldown -= 1
+            if wave_cooldown == 0:
+                init_enemy()
 
 def draw_danger_zone():
     global blink_state, blink_counter
