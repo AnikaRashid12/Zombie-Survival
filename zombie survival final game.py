@@ -109,18 +109,34 @@ def rand_spawn_pos():
 
 def init_enemy():
     enemies.clear()
-    for _ in range(enemy_num):
+    global enemy_num
+    # Custom enemy counts for first three waves
+    if wave == 1:
+        current_enemy_count = 3  # Wave 1 easier
+    elif wave == 2:
+        current_enemy_count = 4  # Wave 2 slightly harder
+    elif wave == 3:
+        current_enemy_count = 6  # Wave 3 moderate
+    else:
+        current_enemy_count = enemy_num + (wave - 1) * wave_enemy_increment  # Normal scaling for later waves
+
+    # Speed scales with wave 
+    current_speed = enemy_speed + (wave - 1) * wave_speed_increment
+
+    for _ in range(current_enemy_count):
         ex, ey = rand_spawn_pos()
-        strength = random.randint(1,3)
-        enemies.append ({
-            "x": ex, "y": ey,
+        strength = random.randint(1, 3)
+        enemies.append({
+            "x": ex,
+            "y": ey,
             "base_r": enemy_base_r,
             "phase": random.uniform(0, math.pi*2),
             "pulse": 0.0,
-            "speed": enemy_speed,
+            "speed": current_speed,
             "strength": strength,
             "hit_cooldown": 0,
-            "health": strength   })
+            "health": strength
+        })
 
 
         
@@ -547,61 +563,7 @@ def update_bullets():
             bullets.remove(b)
 
 
-def update_bullets(): 
-    global bullets, score, enemies, health_pack
-    # arena bounds matched to ground
-    tile = 60
-    grid_length = 1000
-    half_ground = (grid_length // tile) * tile  # 960
 
-    for b in bullets[:]:
-        rad = deg2rad(b["angle"])
-        b["x"] += bull_speed * math.cos(rad)
-        b["y"] += bull_speed * math.sin(rad)
-
-        hit = False
-        for i, e in enumerate(enemies):
-            if e["health"] <= 0:
-                continue
-
-            # === AABB collision like your second code ===
-            if abs(e["x"] - b["x"]) < enemy_base_r and abs(e["y"] - b["y"]) < enemy_base_r:
-                e["health"] -= 1
-                create_blood_trail(e["x"], e["y"])
-                hit = True
-
-                # killed?
-                if e["health"] <= 0:
-                    strength = e.get("strength", 1)
-                    score += {1: 1, 2: 2, 3: 3}.get(strength, 1)
-
-                    # Heal on kill: +20, cap 100
-                    if health_pack < 100:
-                        health_pack = min(100, health_pack + 20)
-
-                    # Respawn enemy fresh (cooldown reset!)
-                    ex, ey = rand_spawn_pos()
-                    new_strength = random.randint(1, 3)
-                    enemies[i] = {
-                        "x": ex,
-                        "y": ey,
-                        "base_r": enemy_base_r,
-                        "phase": random.uniform(0, math.pi*2),
-                        "pulse": 0.0,
-                        "speed": enemy_speed,
-                        "strength": new_strength,
-                        "hit_cooldown": 0,     # <- important
-                        "health": new_strength
-                    }
-                break
-
-        if hit:
-            bullets.remove(b)
-            continue
-
-        # Despawn outside arena with margin
-        if abs(b["x"]) > (half_ground + 40) or abs(b["y"]) > (half_ground + 40):
-            bullets.remove(b)
 
 def update_enemies():  
     global health_pack
