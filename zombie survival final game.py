@@ -229,19 +229,24 @@ def draw_walls():
     glPopMatrix()
 
 def draw_tree(t):
-    # Trunk
-    glColor3f(0.55,0.27,0.07)
+    # --- Tree trunk ---
+    glColor3f(0.55, 0.27, 0.07)  # brown
     glBegin(GL_QUADS)
-    glVertex3f(t['x']-5, t['y']-15, 0)
-    glVertex3f(t['x']+5, t['y']-15, 0)
-    glVertex3f(t['x']+5, t['y'], 0)
-    glVertex3f(t['x']-5, t['y'], 0)
+    glVertex3f(t["x"] - 10, t["y"] - 40, 0)
+    glVertex3f(t["x"] + 10, t["y"] - 40, 0)
+    glVertex3f(t["x"] + 10, t["y"], 0)
+    glVertex3f(t["x"] - 10, t["y"], 0)
     glEnd()
-    # Leaves
-    glColor3f(0,1,0)
+
+    # --- Tree leaves (3 spheres stacked like in your file) ---
+    glColor3f(0, 1, 0)
     glPushMatrix()
-    glTranslatef(t['x'], t['y'], 0)
-    glutSolidSphere(t['size']/2, 20, 20)
+    glTranslatef(t["x"], t["y"], 20)
+    glutSolidSphere(t["size"] * 0.6, 20, 20)
+    glTranslatef(0, 0, 25)
+    glutSolidSphere(t["size"] * 0.5, 20, 20)
+    glTranslatef(0, 0, 25)
+    glutSolidSphere(t["size"] * 0.4, 20, 20)
     glPopMatrix()
 
 def draw_bullet(b):
