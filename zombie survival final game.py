@@ -85,6 +85,17 @@ def deg2rad(a):
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
+def clamp_to_arena(x, y, r=0.0):
+    # keep a tiny gap from the walls (10px thick walls → use ~15px)
+    tile = 60
+    grid_length = 1000
+    half_ground = (grid_length // tile) * tile  # 960 = your ground edge
+    inner = half_ground - 15
+    x = clamp(x, -inner + r, inner - r)
+    y = clamp(y, -inner + r, inner - r)
+    return x, y
+
+
 def rand_spawn_pos(): 
     tile = 60
     grid_length = 1000
@@ -465,9 +476,13 @@ def keyboardListener(key,x,y):
     if key=='q':  # forward
         player["x"] += player["move_speed"]*math.cos(rad)
         player["y"] += player["move_speed"]*math.sin(rad)
+        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+
     elif key=='e':  # backward
         player["x"] -= player["move_speed"]*math.cos(rad)
         player["y"] -= player["move_speed"]*math.sin(rad)
+        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+
     elif key=='a':  # rotate left
         player["angle"] += player["rot_speed"]
     elif key=='d':  # rotate right
@@ -475,9 +490,13 @@ def keyboardListener(key,x,y):
     elif key=='s':  # strafe left
         player["x"] += player["move_speed"]*math.cos(rad + math.pi/2)
         player["y"] += player["move_speed"]*math.sin(rad + math.pi/2)
+        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+
     elif key=='w':  # strafe right
         player["x"] += player["move_speed"]*math.cos(rad - math.pi/2)
         player["y"] += player["move_speed"]*math.sin(rad - math.pi/2)
+        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+
     elif key==' ':  # fire
         fire_bullet()
     elif key in ('r','R') and game_over:  # restart
@@ -631,6 +650,16 @@ def update_enemies():
         # --- Apply movement ---
         e["x"] += e["speed"] * vx
         e["y"] += e["speed"] * vy
+
+        # size-aware clamp based on strength
+        if e.get("strength", 1) == 1:
+           scale = 1.0
+        elif e["strength"] == 2:
+           scale = 1.3
+        else:
+           scale = 1.6
+        e["x"], e["y"] = clamp_to_arena(e["x"], e["y"], r=0.5 * enemy_base_r * scale)
+
 
         # Attack player
         if math.hypot(player["x"] - e["x"], player["y"] - e["y"]) < (enemy_base_r + 20) and e.get("hit_cooldown",0) == 0:
