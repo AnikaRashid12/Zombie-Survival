@@ -16,7 +16,8 @@ player = {
     "move_speed": 8.0,
     "rot_speed": 4.0,
     "alive": True,
-    "lie_down": False
+    "lie_down": False,
+    "health": 100   # added for consistency
 }
 
 #----------------new----------------
@@ -70,6 +71,23 @@ BLOOD_TTL_FRAMES = 240
 BLOOD_DETECT_RADIUS = 220        
 BLOOD_ATTRACT_WEIGHT = 0.45      
 elapsed_time = 0.0
+
+# ---------------- Boss Zombie ----------------
+boss_active = False          # True only while boss is on the field
+boss_spawned = False         # So we spawn once after Wave 3
+boss = {
+    "x": 0.0, "y": 0.0,
+    "speed": 0.50,           # faster than Wave 3 enemies (~0.35)
+    "health": 100,           # % battery style
+    "scale": 2.4,            # noticeably bigger than other zombies & player
+    "hit_cooldown": 0,       # touch damage cooldown
+    "alive": False
+}
+
+BOSS_RADIUS=50.0
+
+# Game outcome
+player_won = False
 
 # ---------------- Helper Functions ----------------
 def wrap_angle_deg(a):
@@ -152,17 +170,43 @@ def init_enemy():
         })
 
 
-        
 def reset_games():
-    global score, health_pack, bullets, game_over, person1
-    player.update({"x":0, "y":0, "angle":0, "alive":True, "lie_down":False})
-    bullets.clear()
+    global score, health_pack, bullets, game_over, person1, player
+    global boss_active, boss_spawned, player_won, boss
+    global wave, wave_cooldown, enemies
+
+    # --- existing resets ---
     score = 0
-    health_pack=100
-    init_enemy()
-    init_treasures()
+    health_pack = 100
+    bullets.clear()
+    enemies.clear()
     game_over = False
     person1 = False
+
+    # --- wave reset ---
+    wave = 1
+    wave_cooldown = 0
+
+    # --- boss reset ---
+    boss_active = False
+    boss_spawned = False
+    player_won = False
+    boss.update({"x": 0.0, "y": 0.0, "health": 100, "alive": False, "hit_cooldown": 0})
+
+    # --- player reset ---
+    player.update({
+    "x": 0.0,
+    "y": 0.0,
+    "angle": 0,
+    "health": 100,
+    "alive": True,
+    "lie_down": False
+})
+
+    # --- INIT FIRST WAVE ---
+    init_enemy()  # spawn wave 1 immediately
+    # --- INIT TREASURES ---
+    init_treasures()  # <--- Add this line
 
 # ---------------- Drawing Functions ----------------
 def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
@@ -402,6 +446,132 @@ def draw_blood_trails():
     glEnd()
     glLineWidth(1)
 
+def create_boss():
+    """Spawn boss near arena edges; clear normal enemies as per spec."""
+    global boss_active, boss_spawned, enemies, boss
+    enemies.clear()  # no other zombies present
+    bx, by = rand_spawn_pos()
+    boss.update({"x": bx, "y": by, "health": 100, "alive": True, "hit_cooldown": 0})
+    boss_active = True
+    boss_spawned = True
+
+def draw_boss():
+    """Big, distinct color. Structure like enemies but scaled up."""
+    if not boss_active or not boss["alive"]:
+        return
+    glPushMatrix()
+    glTranslatef(boss["x"], boss["y"], 0)
+
+    scale = boss["scale"]
+
+    # Torso (purple-ish)
+    glColor3f(0.6, 0.1, 0.7)
+    glPushMatrix()
+    glScalef(1.0*scale, 0.7*scale, 1.9*scale)
+    glutSolidCube(enemy_base_r)
+    glPopMatrix()
+
+    # Head (black sphere)
+    glPushMatrix()
+    glColor3f(0,0,0)
+    glTranslatef(0, 0, 1.9*enemy_base_r*scale/2 + 12*scale)
+    glutSolidSphere(12*scale, 22, 22)
+    glPopMatrix()
+
+    # Arms (thick)
+    glColor3f(0.2,0.2,1.0)
+    for dx in (-0.95*enemy_base_r*scale, 0.95*enemy_base_r*scale):
+        glPushMatrix()
+        glTranslatef(dx, 0, 0.6*enemy_base_r*scale)
+        glScalef(0.35*scale, 0.35*scale, 1.2*scale)
+        glutSolidCube(enemy_base_r)
+        glPopMatrix()
+
+    # Legs
+    for dx in (-0.35*enemy_base_r*scale, 0.35*enemy_base_r*scale):
+        glPushMatrix()
+        glTranslatef(dx, 0, -0.9*enemy_base_r*scale)
+        glScalef(0.45*scale, 0.45*scale, 1.1*scale)
+        glutSolidCube(enemy_base_r)
+        glPopMatrix()
+
+    glPopMatrix()
+
+def update_boss():
+    """Chase player fast; deal heavy contact damage with small cooldown."""
+    global health_pack, game_over, player_won
+    if not boss_active or not boss["alive"] or game_over:
+        return
+
+    # Move toward player
+    dx = player["x"] - boss["x"]
+    dy = player["y"] - boss["y"]
+    dist = math.hypot(dx, dy) + 1e-6
+    vx, vy = dx/dist, dy/dist
+    boss["x"] += boss["speed"] * vx
+    boss["y"] += boss["speed"] * vy
+    boss["x"], boss["y"] = clamp_to_arena(boss["x"], boss["y"], r=BOSS_RADIUS)
+
+    # Contact damage
+    if boss["hit_cooldown"] > 0:
+        boss["hit_cooldown"] -= 1
+
+    if math.hypot(player["x"] - boss["x"], player["y"] - boss["y"]) < (enemy_base_r*boss["scale"]*0.9):
+        if boss["hit_cooldown"] == 0 and not game_over:
+            health_pack = max(0, health_pack - 40)
+            create_blood_trail(player["x"], player["y"])
+            boss["hit_cooldown"] = 20
+
+    # Loss check
+    if health_pack <= 0 and not game_over:
+        trigger_game_over()
+        globals()["player_won"] = False
+
+def draw_boss_health_battery():
+    """Light blue battery below player's health battery."""
+    if not boss_active or not boss["alive"]:
+        return
+
+    body_w, body_h = 180, 28
+    cap_w = 8
+    pad = 3
+    x = window_width - 20 - body_w - cap_w
+    y = window_height - 35 - 40
+
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity()
+    gluOrtho2D(0, window_width, 0, window_height)
+    glMatrixMode(GL_MODELVIEW); glPushMatrix(); glLoadIdentity()
+
+    glColor3f(1, 1, 1)
+    glLineWidth(2)
+    glBegin(GL_LINE_LOOP)
+    glVertex2f(x, y); glVertex2f(x + body_w, y)
+    glVertex2f(x + body_w, y + body_h); glVertex2f(x, y + body_h)
+    glEnd()
+
+    # Cap
+    glBegin(GL_QUADS)
+    glVertex2f(x + body_w,         y + body_h*0.25)
+    glVertex2f(x + body_w + cap_w, y + body_h*0.25)
+    glVertex2f(x + body_w + cap_w, y + body_h*0.75)
+    glVertex2f(x + body_w,         y + body_h*0.75)
+    glEnd()
+
+    # Fill
+    frac = max(0.0, min(1.0, boss["health"]/100.0))
+    glColor3f(0.6, 0.8, 1.0)
+    fill_w = (body_w - 2*pad)*frac
+    glBegin(GL_QUADS)
+    glVertex2f(x + pad,       y + pad)
+    glVertex2f(x + pad+fill_w, y + pad)
+    glVertex2f(x + pad+fill_w, y + body_h - pad)
+    glVertex2f(x + pad,       y + body_h - pad)
+    glEnd()
+
+    glLineWidth(1)
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION); glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
 
 # ---------------- Treasure (as in your second code) ----------------
 treasures = []
@@ -414,9 +584,9 @@ class Treasure:
         self.float_offset = 0
 
     def update(self):
-     self.rotation = (self.rotation + 1) % 360
-     self.float_offset = 5 * math.sin(elapsed_time + self.pos[0]*0.1)
-
+        global elapsed_time
+        self.rotation = (self.rotation + 1) % 360
+        self.float_offset = 5 * math.sin(elapsed_time + self.pos[0]*0.1)
         
     def draw(self):
         glPushMatrix()
@@ -546,46 +716,82 @@ def trigger_game_over():
     game_over = True
     player.update({"alive": False, "lie_down": True})
 # ---------------- Game Logic ----------------
-def update_bullets(): 
-    global bullets, score, enemies, health_pack
-    # arena bounds matched to ground
+def update_bullets():
+    global bullets, score, enemies, health_pack, boss, boss_active
+
     tile = 60
     grid_length = 1000
     half_ground = (grid_length // tile) * tile  # 960
 
-    for b in bullets[:]:
+    to_remove = []
+
+    for b in bullets:
+        # Move bullet
         rad = deg2rad(b["angle"])
         b["x"] += bull_speed * math.cos(rad)
         b["y"] += bull_speed * math.sin(rad)
 
         hit = False
+
+        # --- Normal enemy collision ---
         for e in enemies:
             if e["health"] <= 0:
                 continue
 
-            # === AABB collision ===
+            # Simple AABB collision
             if abs(e["x"] - b["x"]) < enemy_base_r and abs(e["y"] - b["y"]) < enemy_base_r:
                 e["health"] -= 1
                 create_blood_trail(e["x"], e["y"])
                 hit = True
 
-                # killed?
+                # Check if enemy killed
                 if e["health"] <= 0:
                     strength = e.get("strength", 1)
                     score += {1: 1, 2: 2, 3: 3}.get(strength, 1)
 
-                    # Heal on kill: +20, cap 100
                     if health_pack < 100:
                         health_pack = min(100, health_pack + 20)
 
                 break  # stop checking other enemies for this bullet
 
-        if hit:
-            bullets.remove(b)
-            continue
+        # --- Boss collision (only body-hit counter system) ---
+        if not hit and boss_active and boss["alive"]:
+            dxb = b["x"] - boss["x"]
+            dyb = b["y"] - boss["y"]
+            db = math.hypot(dxb, dyb)
 
-        # Despawn outside arena with margin
+            if db < BOSS_RADIUS:
+                # Increment body hit counter
+                if "body_hit_counter" not in boss:
+                    boss["body_hit_counter"] = 1
+                else:
+                    boss["body_hit_counter"] += 1
+
+                # Apply points and health decrease only if 5 bullets hit
+                if boss["body_hit_counter"] >= 5:
+                    score += 5
+                    boss["health"] = max(0, boss["health"] - 10)  # 10% decrease
+                    boss["body_hit_counter"] = 0  # reset after applying
+
+                hit = True
+
+            # Boss death check
+            if hit and boss["health"] <= 0 and boss["alive"]:
+                boss["alive"] = False
+                globals()["player_won"] = True
+                trigger_game_over()
+
+        # --- Despawn bullets outside arena ---
         if abs(b["x"]) > (half_ground + 40) or abs(b["y"]) > (half_ground + 40):
+            hit = True
+
+        # Collect bullets to remove after iteration
+        if hit:
+            to_remove.append(b)
+
+    # Remove bullets safely after the loop
+    for b in to_remove:
+        if b in bullets:
             bullets.remove(b)
 
 def update_enemies():
@@ -651,16 +857,6 @@ def update_enemies():
         e["x"] += e["speed"] * vx
         e["y"] += e["speed"] * vy
 
-        # size-aware clamp based on strength
-        if e.get("strength", 1) == 1:
-           scale = 1.0
-        elif e["strength"] == 2:
-           scale = 1.3
-        else:
-           scale = 1.6
-        e["x"], e["y"] = clamp_to_arena(e["x"], e["y"], r=0.5 * enemy_base_r * scale)
-
-
         # Attack player
         if math.hypot(player["x"] - e["x"], player["y"] - e["y"]) < (enemy_base_r + 20) and e.get("hit_cooldown",0) == 0:
             health_pack = max(0, health_pack - 20)
@@ -670,15 +866,30 @@ def update_enemies():
     # Update global enemies list to only alive ones
     enemies[:] = alive_enemies_list
 
-    # --- Wave management ---
+    # --- Wave / Boss management ---
     if alive_enemies == 0 and not game_over:
         if wave_cooldown == 0:
-            wave += 1
-            wave_cooldown = wave_cooldown_frames  # 5 sec
+            # Waves 1-3: normal enemies
+            if wave <= 3:
+                if wave < 3:
+                    # Waves 1 & 2: spawn next normal wave
+                    wave += 1
+                    wave_cooldown = wave_cooldown_frames
+                else:
+                    # Wave 3 finished, now spawn boss for last wave
+                    create_boss()
+                    wave += 1  # increment wave to indicate boss wave
+              # After boss (wave > 4): do nothing
         else:
             wave_cooldown -= 1
-            if wave_cooldown == 0:
+            # Spawn normal enemies for waves 1-3
+            if wave <= 3 and wave_cooldown == 0:
                 init_enemy()
+
+    # Check for player loss
+    if health_pack <= 0 and not game_over:
+        trigger_game_over()
+        globals()["player_won"] = False
 
 def draw_danger_zone():
     global blink_state, blink_counter
@@ -728,6 +939,7 @@ def idle():
         update_bullets()
         update_blood_trails()
         update_treasures()
+        update_boss()
     glutPostRedisplay()
 
 
@@ -814,13 +1026,20 @@ def showScreen():
     for b in bullets:
         draw_bullet(b)
     draw_player()
-    draw_player()
     # HUD
     draw_text(10, window_height - 30, f"Health Pack: {health_pack}")
     draw_text(10, window_height - 55, f"Score: {score}")
-    draw_health_battery()
+    
+    # Boss health battery (under player's)
+    draw_boss()
+    draw_boss_health_battery()
+
     if game_over:
-        draw_text(window_width/2 - 120, window_height/2, "GAME OVER - Press R to Restart")
+        msg = "PLAYER WON" if player_won else "PLAYER LOST"
+        draw_text(window_width/2 - 100, window_height/2 + 20, "GAME OVER")
+        draw_text(window_width/2 - 90,  window_height/2 - 5,  msg)
+        draw_text(window_width/2 - 100, window_height/2 - 30, f"Final Score: {score}")
+        draw_text(window_width/2 - 150, window_height/2 - 55, "Press R to Restart")
     draw_text(10, window_height - 80, f"Wave: {wave}")
 
     glutSwapBuffers()
