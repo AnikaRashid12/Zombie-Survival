@@ -103,15 +103,6 @@ def deg2rad(a):
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
-def clamp_to_arena(x, y, r=0.0):
-    # keep a tiny gap from the walls (10px thick walls → use ~15px)
-    tile = 60
-    grid_length = 1000
-    half_ground = (grid_length // tile) * tile  # 960 = your ground edge
-    inner = half_ground - 15
-    x = clamp(x, -inner + r, inner - r)
-    y = clamp(y, -inner + r, inner - r)
-    return x, y
 
 
 def rand_spawn_pos(): 
