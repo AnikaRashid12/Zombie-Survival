@@ -510,7 +510,17 @@ def update_boss():
     vx, vy = dx/dist, dy/dist
     boss["x"] += boss["speed"] * vx
     boss["y"] += boss["speed"] * vy
-    boss["x"], boss["y"] = clamp_to_arena(boss["x"], boss["y"], r=BOSS_RADIUS)
+    # --- keep boss inside arena ---
+    tile = 60
+    grid_length = 1000
+    grid_half = grid_length // tile
+    half_ground = grid_half * tile            # 960
+    wall_thickness = 10
+    boundary = half_ground - wall_thickness/2 # 955
+
+    boss_margin = enemy_base_r * boss["scale"] * 0.9   # same radius you use for contact
+    boss["x"] = clamp(boss["x"], -boundary + boss_margin, boundary - boss_margin)
+    boss["y"] = clamp(boss["y"], -boundary + boss_margin, boundary - boss_margin)
 
     # Contact damage
     if boss["hit_cooldown"] > 0:
@@ -559,7 +569,7 @@ def draw_boss_health_battery():
 
     # Fill
     frac = max(0.0, min(1.0, boss["health"]/100.0))
-    glColor3f(0.6, 0.8, 1.0)
+    glColor3f(0.0, 0.0, 1.0)
     fill_w = (body_w - 2*pad)*frac
     glBegin(GL_QUADS)
     glVertex2f(x + pad,       y + pad)
@@ -856,6 +866,19 @@ def update_enemies():
         # --- Apply movement ---
         e["x"] += e["speed"] * vx
         e["y"] += e["speed"] * vy
+        # --- keep zombie inside arena ---
+        tile = 60
+        grid_length = 1000
+        grid_half = grid_length // tile
+        half_ground = grid_half * tile            # 960
+        wall_thickness = 10
+        boundary = half_ground - wall_thickness/2 # 955
+
+        zombie_margin = enemy_base_r              # ~30 keeps arms/legs from clipping
+        e["x"] = clamp(e["x"], -boundary + zombie_margin, boundary - zombie_margin)
+        e["y"] = clamp(e["y"], -boundary + zombie_margin, boundary - zombie_margin)
+
+
 
         # Attack player
         if math.hypot(player["x"] - e["x"], player["y"] - e["y"]) < (enemy_base_r + 20) and e.get("hit_cooldown",0) == 0:
