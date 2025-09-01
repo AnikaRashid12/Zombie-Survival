@@ -411,32 +411,6 @@ def create_blood_trail(px, py):
             "ttl": BLOOD_TTL_FRAMES
         })
 
-def update_blood_trails():
-    for bt in blood_trails:
-        bt["ttl"] -= 1
-    # keep only alive trails
-    alive = [bt for bt in blood_trails if bt["ttl"] > 0]
-    blood_trails.clear()
-    blood_trails.extend(alive)
-
-def draw_blood_trails():
-    if not blood_trails:
-        return
-
-    # No depth/blend/smooth state changes per template rules (#1, #2 not allowed)
-    glLineWidth(3)  # allowed (#4)
-    glBegin(GL_LINES)
-    for bt in blood_trails:
-        t = max(0.0, min(1.0, bt["ttl"] / BLOOD_TTL_FRAMES))  # 1 fresh → 0 old
-        # fade by brightness only (no alpha)
-        r = 0.9 * t + 0.1
-        glColor3f(r, 0.0, 0.0)
-        z = 2.0  # slight lift above ground so lines don’t z-fight
-        glVertex3f(bt["x1"], bt["y1"], z)
-        glVertex3f(bt["x2"], bt["y2"], z)
-    glEnd()
-    glLineWidth(1)
-
 def create_boss():
     """Spawn boss near arena edges; clear normal enemies as per spec."""
     global boss_active, boss_spawned, enemies, boss
@@ -573,6 +547,32 @@ def draw_boss_health_battery():
     glPopMatrix()
     glMatrixMode(GL_PROJECTION); glPopMatrix()
     glMatrixMode(GL_MODELVIEW)
+
+def update_blood_trails():
+    for bt in blood_trails:
+        bt["ttl"] -= 1
+    # keep only alive trails
+    alive = [bt for bt in blood_trails if bt["ttl"] > 0]
+    blood_trails.clear()
+    blood_trails.extend(alive)
+
+def draw_blood_trails():
+    if not blood_trails:
+        return
+
+    # No depth/blend/smooth state changes per template rules (#1, #2 not allowed)
+    glLineWidth(3)  # allowed (#4)
+    glBegin(GL_LINES)
+    for bt in blood_trails:
+        t = max(0.0, min(1.0, bt["ttl"] / BLOOD_TTL_FRAMES))  # 1 fresh → 0 old
+        # fade by brightness only (no alpha)
+        r = 0.9 * t + 0.1
+        glColor3f(r, 0.0, 0.0)
+        z = 2.0  # slight lift above ground so lines don’t z-fight
+        glVertex3f(bt["x1"], bt["y1"], z)
+        glVertex3f(bt["x2"], bt["y2"], z)
+    glEnd()
+    glLineWidth(1)
 
 # ---------------- Treasure (as in your second code) ----------------
 treasures = []
