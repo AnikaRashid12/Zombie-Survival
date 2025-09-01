@@ -647,12 +647,32 @@ def keyboardListener(key,x,y):
     if key=='q':  # forward
         player["x"] += player["move_speed"]*math.cos(rad)
         player["y"] += player["move_speed"]*math.sin(rad)
-        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+        # --- keep inside arena ---
+        tile = 60
+        grid_length = 1000
+        grid_half = grid_length // tile
+        half_ground = grid_half * tile            # 960
+        wall_thickness = 10
+        boundary = half_ground - wall_thickness/2 # 955
+
+        player_half = 25                          # player cube is 50 → half = 25
+        player["x"] = clamp(player["x"], -boundary + player_half, boundary - player_half)
+        player["y"] = clamp(player["y"], -boundary + player_half, boundary - player_half)
+
 
     elif key=='e':  # backward
         player["x"] -= player["move_speed"]*math.cos(rad)
         player["y"] -= player["move_speed"]*math.sin(rad)
-        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+        tile = 60
+        grid_length = 1000
+        grid_half = grid_length // tile
+        half_ground = grid_half * tile            # 960
+        wall_thickness = 10
+        boundary = half_ground - wall_thickness/2 # 955
+
+        player_half = 25                          # player cube is 50 → half = 25
+        player["x"] = clamp(player["x"], -boundary + player_half, boundary - player_half)
+        player["y"] = clamp(player["y"], -boundary + player_half, boundary - player_half)
 
     elif key=='a':  # rotate left
         player["angle"] += player["rot_speed"]
@@ -661,12 +681,30 @@ def keyboardListener(key,x,y):
     elif key=='s':  # strafe left
         player["x"] += player["move_speed"]*math.cos(rad + math.pi/2)
         player["y"] += player["move_speed"]*math.sin(rad + math.pi/2)
-        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+        tile = 60
+        grid_length = 1000
+        grid_half = grid_length // tile
+        half_ground = grid_half * tile            # 960
+        wall_thickness = 10
+        boundary = half_ground - wall_thickness/2 # 955
+
+        player_half = 25                          # player cube is 50 → half = 25
+        player["x"] = clamp(player["x"], -boundary + player_half, boundary - player_half)
+        player["y"] = clamp(player["y"], -boundary + player_half, boundary - player_half)
 
     elif key=='w':  # strafe right
         player["x"] += player["move_speed"]*math.cos(rad - math.pi/2)
         player["y"] += player["move_speed"]*math.sin(rad - math.pi/2)
-        player["x"], player["y"] = clamp_to_arena(player["x"], player["y"], r=25)
+        tile = 60
+        grid_length = 1000
+        grid_half = grid_length // tile
+        half_ground = grid_half * tile            # 960
+        wall_thickness = 10
+        boundary = half_ground - wall_thickness/2 # 955
+
+        player_half = 25                          # player cube is 50 → half = 25
+        player["x"] = clamp(player["x"], -boundary + player_half, boundary - player_half)
+        player["y"] = clamp(player["y"], -boundary + player_half, boundary - player_half)
 
     elif key==' ':  # fire
         fire_bullet()
